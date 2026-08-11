@@ -15,7 +15,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
     
-    // متغیرهای لازم برای باز کردن فایل‌منجر گوشی
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private val FILE_CHOOSER_REQUEST_CODE = 1001
 
@@ -38,6 +37,8 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 progressBar.visibility = View.GONE
+                // تنظیم رزولوشن دسکتاپ و تزریق اسکریپت لمس
+                setupDesktopViewport()
                 injectTouchScript()
             }
         }
@@ -49,7 +50,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // کد اتصال دکمه آپلود مرورگر به حافظه/فایل‌منجر گوشی
             override fun onShowFileChooser(
                 webView: WebView?,
                 filePathCallback: ValueCallback<Array<Uri>>?,
@@ -89,12 +89,29 @@ class MainActivity : AppCompatActivity() {
         cookieManager.setAcceptCookie(true)
         cookieManager.setAcceptThirdPartyCookies(webView, true)
 
+        // شبیه‌سازی مانیتور استاندارد دسکتاپ
         settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
         settings.builtInZoomControls = true
         settings.displayZoomControls = false
+    }
+
+    // تنظیم رزولوشن استاندارد دسکتاپ (1280px) جهت هماهنگی ابعاد و دایره‌ها
+    private fun setupDesktopViewport() {
+        val script = """
+            (function() {
+                let meta = document.querySelector('meta[name="viewport"]');
+                if (!meta) {
+                    meta = document.createElement('meta');
+                    meta.name = 'viewport';
+                    document.head.appendChild(meta);
+                }
+                meta.content = 'width=1280, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes';
+            })();
+        """.trimIndent()
+        webView.evaluateJavascript(script, null)
     }
 
     private fun injectTouchScript() {
@@ -107,13 +124,12 @@ class MainActivity : AppCompatActivity() {
 
                 function isInteractiveUI(el) {
                     if (!el) return false;
-                    // استثنا کردن دکمه‌ها، کادرهای آپلود، فرم‌ها و لینک‌ها از اسکریپت لمس
                     return el.closest('input, button, a, select, textarea, label, [role="button"], form, .spectrum-Button, [class*="upload"], [class*="drop"]');
                 }
 
-                function createPointerEvent(type, touch) {
-                    const el = activeTarget || document.elementFromPoint(touch.clientX, touch.clientY);
-                    if (!el) return null;
+                function dispatchMousePointer(type, touch) {
+                    const target = activeTarget || document.elementFromPoint(touch.clientX, touch.clientY);
+                    if (!target) return null;
 
                     const evt = new PointerEvent(type, {
                         bubbles: true,
@@ -121,13 +137,17 @@ class MainActivity : AppCompatActivity() {
                         view: window,
                         clientX: touch.clientX,
                         clientY: touch.clientY,
+                        screenX: touch.screenX,
+                        screenY: touch.screenY,
                         pointerId: 1,
                         pointerType: 'mouse',
                         isPrimary: true,
-                        buttons: (type === 'pointerup') ? 0 : 1
+                        buttons: (type === 'pointerup') ? 0 : 1,
+                        pressure: (type === 'pointerup') ? 0 : 0.5
                     });
-                    el.dispatchEvent(evt);
-                    return el;
+
+                    target.dispatchEvent(evt);
+                    return target;
                 }
 
                 window.addEventListener('touchstart', function(e) {
@@ -140,21 +160,22 @@ class MainActivity : AppCompatActivity() {
                             return;
                         }
                         
-                        activeTarget = createPointerEvent('pointerdown', touch);
+                        // قفل کردن نشانه روی بوم 3D یا دایره‌ها
+                        activeTarget = dispatchMousePointer('pointerdown', touch);
                     }
                 }, { passive: false });
 
                 window.addEventListener('touchmove', function(e) {
                     if (activeTarget && e.touches.length === 1) {
                         e.preventDefault();
-                        createPointerEvent('pointermove', e.touches[0]);
+                        dispatchMousePointer('pointermove', e.touches[0]);
                     }
                 }, { passive: false });
 
                 window.addEventListener('touchend', function(e) {
                     if (activeTarget) {
                         e.preventDefault();
-                        createPointerEvent('pointerup', e.changedTouches[0]);
+                        dispatchMousePointer('pointerup', e.changedTouches[0]);
                         activeTarget = null;
                     }
                 }, { passive: false });
@@ -164,7 +185,6 @@ class MainActivity : AppCompatActivity() {
         webView.evaluateJavascript(script, null)
     }
 
-    // دریافت نتیجه فایل انتخاب‌شده از حافظه گوشی
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == FILE_CHOOSER_REQUEST_CODE) {
