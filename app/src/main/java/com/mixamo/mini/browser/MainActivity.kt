@@ -88,10 +88,13 @@ class MainActivity : AppCompatActivity() {
         cookieManager.setAcceptCookie(true)
         cookieManager.setAcceptThirdPartyCookies(webView, true)
 
+        // مرورگر دسکتاپ
         settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         
+        // فعال‌سازی اسکرول و زوم آزادانه در تمام صفحات
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
+        settings.setSupportZoom(true)
         settings.builtInZoomControls = true
         settings.displayZoomControls = false
     }
@@ -105,7 +108,7 @@ class MainActivity : AppCompatActivity() {
                     meta.name = 'viewport';
                     document.head.appendChild(meta);
                 }
-                meta.content = 'width=1280, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes';
+                meta.content = 'width=1280, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes';
             })();
         """.trimIndent()
         webView.evaluateJavascript(script, null)
@@ -114,22 +117,15 @@ class MainActivity : AppCompatActivity() {
     private fun injectTouchScript() {
         val script = """
             (function() {
-                // تزریق استایل جهت غیرفعال کردن اسکرول مزاحم مرورگر روی بوم 3D
-                if (!document.getElementById('mixamo-touch-style')) {
-                    const style = document.createElement('style');
-                    style.id = 'mixamo-touch-style';
-                    style.innerHTML = 'canvas, svg, div { touch-action: none !important; -webkit-user-select: none !important; }';
-                    document.head.appendChild(style);
-                }
-
                 if (window.__mixamoTouchFixLoaded) return;
                 window.__mixamoTouchFixLoaded = true;
 
                 let activeTarget = null;
 
-                function isInteractiveUI(el) {
+                // تشخیص بوم ۳بعدی میکسامو
+                function is3DCanvas(el) {
                     if (!el) return false;
-                    return el.closest('input, button, a, select, textarea, label, [role="button"], form, .spectrum-Button, [class*="upload"], [class*="drop"]');
+                    return el.tagName.toLowerCase() === 'canvas' || el.closest('canvas');
                 }
 
                 function dispatchAllMouseEvents(touch, mouseType, pointerType) {
@@ -138,7 +134,6 @@ class MainActivity : AppCompatActivity() {
 
                     const isUp = (mouseType === 'mouseup');
                     
-                    // ۱. ارسال PointerEvent
                     const pEvent = new PointerEvent(pointerType, {
                         bubbles: true,
                         cancelable: true,
@@ -155,7 +150,6 @@ class MainActivity : AppCompatActivity() {
                     });
                     target.dispatchEvent(pEvent);
 
-                    // ۲. ارسال MouseEvent استاندارد (برای پشتیبانی از کتابخانه‌های قدیمی Canvas/WebGL)
                     const mEvent = new MouseEvent(mouseType, {
                         bubbles: true,
                         cancelable: true,
@@ -177,13 +171,13 @@ class MainActivity : AppCompatActivity() {
                         const touch = e.touches[0];
                         const target = document.elementFromPoint(touch.clientX, touch.clientY);
                         
-                        if (isInteractiveUI(target)) {
+                        // فقط اگر روی بوم ۳بعدی زدید لمس متوقف شود، در غیر این صورت صفحه به‌راحتی اسکرول می‌شود
+                        if (is3DCanvas(target)) {
+                            e.preventDefault();
+                            activeTarget = dispatchAllMouseEvents(touch, 'mousedown', 'pointerdown');
+                        } else {
                             activeTarget = null;
-                            return;
                         }
-                        
-                        e.preventDefault();
-                        activeTarget = dispatchAllMouseEvents(touch, 'mousedown', 'pointerdown');
                     }
                 }, { passive: false });
 
