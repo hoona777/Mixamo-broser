@@ -37,7 +37,6 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 progressBar.visibility = View.GONE
-                // تنظیم رزولوشن دسکتاپ و تزریق اسکریپت لمس
                 setupDesktopViewport()
                 injectTouchScript()
             }
@@ -89,7 +88,6 @@ class MainActivity : AppCompatActivity() {
         cookieManager.setAcceptCookie(true)
         cookieManager.setAcceptThirdPartyCookies(webView, true)
 
-        // شبیه‌سازی مانیتور استاندارد دسکتاپ
         settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         
         settings.useWideViewPort = true
@@ -98,7 +96,6 @@ class MainActivity : AppCompatActivity() {
         settings.displayZoomControls = false
     }
 
-    // تنظیم رزولوشن استاندارد دسکتاپ (1280px) جهت هماهنگی ابعاد و دایره‌ها
     private fun setupDesktopViewport() {
         val script = """
             (function() {
@@ -117,6 +114,14 @@ class MainActivity : AppCompatActivity() {
     private fun injectTouchScript() {
         val script = """
             (function() {
+                // تزریق استایل جهت غیرفعال کردن اسکرول مزاحم مرورگر روی بوم 3D
+                if (!document.getElementById('mixamo-touch-style')) {
+                    const style = document.createElement('style');
+                    style.id = 'mixamo-touch-style';
+                    style.innerHTML = 'canvas, svg, div { touch-action: none !important; -webkit-user-select: none !important; }';
+                    document.head.appendChild(style);
+                }
+
                 if (window.__mixamoTouchFixLoaded) return;
                 window.__mixamoTouchFixLoaded = true;
 
@@ -127,11 +132,14 @@ class MainActivity : AppCompatActivity() {
                     return el.closest('input, button, a, select, textarea, label, [role="button"], form, .spectrum-Button, [class*="upload"], [class*="drop"]');
                 }
 
-                function dispatchMousePointer(type, touch) {
+                function dispatchAllMouseEvents(touch, mouseType, pointerType) {
                     const target = activeTarget || document.elementFromPoint(touch.clientX, touch.clientY);
                     if (!target) return null;
 
-                    const evt = new PointerEvent(type, {
+                    const isUp = (mouseType === 'mouseup');
+                    
+                    // ۱. ارسال PointerEvent
+                    const pEvent = new PointerEvent(pointerType, {
                         bubbles: true,
                         cancelable: true,
                         view: window,
@@ -142,11 +150,25 @@ class MainActivity : AppCompatActivity() {
                         pointerId: 1,
                         pointerType: 'mouse',
                         isPrimary: true,
-                        buttons: (type === 'pointerup') ? 0 : 1,
-                        pressure: (type === 'pointerup') ? 0 : 0.5
+                        buttons: isUp ? 0 : 1,
+                        pressure: isUp ? 0 : 0.5
                     });
+                    target.dispatchEvent(pEvent);
 
-                    target.dispatchEvent(evt);
+                    // ۲. ارسال MouseEvent استاندارد (برای پشتیبانی از کتابخانه‌های قدیمی Canvas/WebGL)
+                    const mEvent = new MouseEvent(mouseType, {
+                        bubbles: true,
+                        cancelable: true,
+                        view: window,
+                        clientX: touch.clientX,
+                        clientY: touch.clientY,
+                        screenX: touch.screenX,
+                        screenY: touch.screenY,
+                        buttons: isUp ? 0 : 1,
+                        which: 1
+                    });
+                    target.dispatchEvent(mEvent);
+
                     return target;
                 }
 
@@ -160,22 +182,22 @@ class MainActivity : AppCompatActivity() {
                             return;
                         }
                         
-                        // قفل کردن نشانه روی بوم 3D یا دایره‌ها
-                        activeTarget = dispatchMousePointer('pointerdown', touch);
+                        e.preventDefault();
+                        activeTarget = dispatchAllMouseEvents(touch, 'mousedown', 'pointerdown');
                     }
                 }, { passive: false });
 
                 window.addEventListener('touchmove', function(e) {
                     if (activeTarget && e.touches.length === 1) {
                         e.preventDefault();
-                        dispatchMousePointer('pointermove', e.touches[0]);
+                        dispatchAllMouseEvents(e.touches[0], 'mousemove', 'pointermove');
                     }
                 }, { passive: false });
 
                 window.addEventListener('touchend', function(e) {
                     if (activeTarget) {
                         e.preventDefault();
-                        dispatchMousePointer('pointerup', e.changedTouches[0]);
+                        dispatchAllMouseEvents(e.changedTouches[0], 'mouseup', 'pointerup');
                         activeTarget = null;
                     }
                 }, { passive: false });
