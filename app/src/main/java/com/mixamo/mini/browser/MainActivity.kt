@@ -37,7 +37,6 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 progressBar.visibility = View.GONE
-                setupDesktopViewport()
                 injectTouchScript()
             }
         }
@@ -88,10 +87,10 @@ class MainActivity : AppCompatActivity() {
         cookieManager.setAcceptCookie(true)
         cookieManager.setAcceptThirdPartyCookies(webView, true)
 
-        // مرورگر دسکتاپ
+        // تنظیم مرورگر دسکتاپ
         settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         
-        // فعال‌سازی اسکرول و زوم آزادانه در تمام صفحات
+        // فعال‌سازی اسکرول و زوم استاندارد اندروید
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
         settings.setSupportZoom(true)
@@ -99,102 +98,125 @@ class MainActivity : AppCompatActivity() {
         settings.displayZoomControls = false
     }
 
-    private fun setupDesktopViewport() {
-        val script = """
-            (function() {
-                let meta = document.querySelector('meta[name="viewport"]');
-                if (!meta) {
-                    meta = document.createElement('meta');
-                    meta.name = 'viewport';
-                    document.head.appendChild(meta);
-                }
-                meta.content = 'width=1280, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes';
-            })();
-        """.trimIndent()
-        webView.evaluateJavascript(script, null)
-    }
-
     private fun injectTouchScript() {
         val script = """
             (function() {
-                if (window.__mixamoTouchFixLoaded) return;
-                window.__mixamoTouchFixLoaded = true;
+                if (window.__mixamoTouchFixInjected) return;
+                window.__mixamoTouchFixInjected = true;
 
                 let activeTarget = null;
 
-                // تشخیص بوم ۳بعدی میکسامو
-                function is3DCanvas(el) {
-                    if (!el) return false;
-                    return el.tagName.toLowerCase() === 'canvas' || el.closest('canvas');
+                // پیدا کردن دقیق دایره‌ها حتی با لمس غیردقیق انگشت
+                function findBestTarget(x, y) {
+                    let el = document.elementFromPoint(x, y);
+                    if (!el) return null;
+
+                    if (el.closest) {
+                        const marker = el.closest('[class*="marker"], [class*="ring"], [class*="circle"], [class*="joint"], svg, canvas');
+                        if (marker) return marker;
+                    }
+
+                    // جستجو در شعاع ۱۵ پیکسلی اطراف نقطه‌ی لمس شده
+                    const offsets = [
+                        [0, 0], [0, -10], [0, 10], [-10, 0], [10, 0],
+                        [-15, -15], [15, -15], [-15, 15], [15, 15]
+                    ];
+
+                    for (let [dx, dy] of offsets) {
+                        let candidate = document.elementFromPoint(x + dx, y + dy);
+                        if (candidate && candidate.closest) {
+                            let match = candidate.closest('[class*="marker"], [class*="ring"], [class*="circle"], [class*="joint"]');
+                            if (match) return match;
+                        }
+                    }
+
+                    return el;
                 }
 
-                function dispatchAllMouseEvents(touch, mouseType, pointerType) {
-                    const target = activeTarget || document.elementFromPoint(touch.clientX, touch.clientY);
-                    if (!target) return null;
+                function fireMouseEvent(type, target, touch) {
+                    if (!target) return;
 
-                    const isUp = (mouseType === 'mouseup');
-                    
-                    const pEvent = new PointerEvent(pointerType, {
+                    const isUp = (type === 'mouseup' || type === 'pointerup');
+                    const clientX = touch.clientX;
+                    const clientY = touch.clientY;
+                    const pageX = touch.pageX || (clientX + window.scrollX);
+                    const pageY = touch.pageY || (clientY + window.scrollY);
+
+                    const eventInit = {
                         bubbles: true,
                         cancelable: true,
+                        composed: true,
                         view: window,
-                        clientX: touch.clientX,
-                        clientY: touch.clientY,
-                        screenX: touch.screenX,
-                        screenY: touch.screenY,
+                        detail: 1,
+                        screenX: touch.screenX || clientX,
+                        screenY: touch.screenY || clientY,
+                        clientX: clientX,
+                        clientY: clientY,
+                        pageX: pageX,
+                        pageY: pageY,
+                        button: 0,
+                        buttons: isUp ? 0 : 1,
+                        which: 1,
                         pointerId: 1,
                         pointerType: 'mouse',
                         isPrimary: true,
-                        buttons: isUp ? 0 : 1,
                         pressure: isUp ? 0 : 0.5
-                    });
-                    target.dispatchEvent(pEvent);
+                    };
 
-                    const mEvent = new MouseEvent(mouseType, {
-                        bubbles: true,
-                        cancelable: true,
-                        view: window,
-                        clientX: touch.clientX,
-                        clientY: touch.clientY,
-                        screenX: touch.screenX,
-                        screenY: touch.screenY,
-                        buttons: isUp ? 0 : 1,
-                        which: 1
-                    });
-                    target.dispatchEvent(mEvent);
-
-                    return target;
+                    if (type.startsWith('pointer')) {
+                        const pe = new PointerEvent(type, eventInit);
+                        target.dispatchEvent(pe);
+                    } else {
+                        const me = new MouseEvent(type, eventInit);
+                        target.dispatchEvent(me);
+                    }
                 }
 
                 window.addEventListener('touchstart', function(e) {
-                    if (e.touches.length === 1) {
-                        const touch = e.touches[0];
-                        const target = document.elementFromPoint(touch.clientX, touch.clientY);
-                        
-                        // فقط اگر روی بوم ۳بعدی زدید لمس متوقف شود، در غیر این صورت صفحه به‌راحتی اسکرول می‌شود
-                        if (is3DCanvas(target)) {
-                            e.preventDefault();
-                            activeTarget = dispatchAllMouseEvents(touch, 'mousedown', 'pointerdown');
-                        } else {
-                            activeTarget = null;
-                        }
+                    if (e.touches.length !== 1) return;
+
+                    const touch = e.touches[0];
+                    const target = findBestTarget(touch.clientX, touch.clientY);
+
+                    if (!target) return;
+
+                    const isRiggingElement = target.closest('canvas, svg, [class*="marker"], [class*="ring"], [class*="circle"], [class*="joint"], [class*="autorig"]');
+
+                    if (isRiggingElement) {
+                        activeTarget = target;
+                        e.preventDefault();
+
+                        fireMouseEvent('pointerdown', activeTarget, touch);
+                        fireMouseEvent('mousedown', activeTarget, touch);
+                    } else {
+                        activeTarget = null;
                     }
                 }, { passive: false });
 
                 window.addEventListener('touchmove', function(e) {
                     if (activeTarget && e.touches.length === 1) {
                         e.preventDefault();
-                        dispatchAllMouseEvents(e.touches[0], 'mousemove', 'pointermove');
+                        const touch = e.touches[0];
+
+                        fireMouseEvent('pointermove', activeTarget, touch);
+                        fireMouseEvent('mousemove', activeTarget, touch);
+                        fireMouseEvent('mousemove', document, touch);
                     }
                 }, { passive: false });
 
                 window.addEventListener('touchend', function(e) {
                     if (activeTarget) {
                         e.preventDefault();
-                        dispatchAllMouseEvents(e.changedTouches[0], 'mouseup', 'pointerup');
+                        const touch = e.changedTouches[0];
+
+                        fireMouseEvent('pointerup', activeTarget, touch);
+                        fireMouseEvent('mouseup', activeTarget, touch);
+                        fireMouseEvent('click', activeTarget, touch);
+
                         activeTarget = null;
                     }
                 }, { passive: false });
+
             })();
         """.trimIndent()
 
