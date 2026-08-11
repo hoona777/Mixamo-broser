@@ -1,7 +1,9 @@
 package com.mixamo.mini.browser
 
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.webkit.*
@@ -12,6 +14,10 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
+    
+    // متغیرهای لازم برای باز کردن فایل‌منجر گوشی
+    private var filePathCallback: ValueCallback<Array<Uri>>? = null
+    private val FILE_CHOOSER_REQUEST_CODE = 1001
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -42,6 +48,29 @@ class MainActivity : AppCompatActivity() {
                     progressBar.visibility = View.GONE
                 }
             }
+
+            // کد اتصال دکمه آپلود مرورگر به حافظه/فایل‌منجر گوشی
+            override fun onShowFileChooser(
+                webView: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: FileChooserParams?
+            ): Boolean {
+                this@MainActivity.filePathCallback?.onReceiveValue(null)
+                this@MainActivity.filePathCallback = filePathCallback
+
+                val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                }
+
+                try {
+                    startActivityForResult(intent, FILE_CHOOSER_REQUEST_CODE)
+                } catch (e: Exception) {
+                    this@MainActivity.filePathCallback = null
+                    return false
+                }
+                return true
+            }
         }
 
         webView.loadUrl("https://www.mixamo.com")
@@ -54,13 +83,12 @@ class MainActivity : AppCompatActivity() {
         settings.domStorageEnabled = true
         settings.databaseEnabled = true
         settings.allowFileAccess = true
+        settings.allowContentAccess = true
         
-        // فعال‌سازی کوکی‌ها برای پشتیبانی کامل از لاگین Adobe/Mixamo
         val cookieManager = CookieManager.getInstance()
         cookieManager.setAcceptCookie(true)
         cookieManager.setAcceptThirdPartyCookies(webView, true)
 
-        // User Agent دسکتاپ
         settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         
         settings.useWideViewPort = true
@@ -77,10 +105,10 @@ class MainActivity : AppCompatActivity() {
 
                 let activeTarget = null;
 
-                // تشخیص دکمه‌ها، لینک‌ها و کادرهای ورود جهت عدم تداخل اسکریپت
                 function isInteractiveUI(el) {
                     if (!el) return false;
-                    return el.closest('input, button, a, select, textarea, [role="button"], form, .spectrum-Button');
+                    // استثنا کردن دکمه‌ها، کادرهای آپلود، فرم‌ها و لینک‌ها از اسکریپت لمس
+                    return el.closest('input, button, a, select, textarea, label, [role="button"], form, .spectrum-Button, [class*="upload"], [class*="drop"]');
                 }
 
                 function createPointerEvent(type, touch) {
@@ -107,7 +135,6 @@ class MainActivity : AppCompatActivity() {
                         const touch = e.touches[0];
                         const target = document.elementFromPoint(touch.clientX, touch.clientY);
                         
-                        // اگر کاربر روی دکمه یا فرم لاگین زده است، لمس استاندارد مرورگر اجرا شود
                         if (isInteractiveUI(target)) {
                             activeTarget = null;
                             return;
@@ -135,6 +162,17 @@ class MainActivity : AppCompatActivity() {
         """.trimIndent()
 
         webView.evaluateJavascript(script, null)
+    }
+
+    // دریافت نتیجه فایل انتخاب‌شده از حافظه گوشی
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == FILE_CHOOSER_REQUEST_CODE) {
+            if (filePathCallback == null) return
+            val results = WebChromeClient.FileChooserParams.parseResult(resultCode, data)
+            filePathCallback?.onReceiveValue(results)
+            filePathCallback = null
+        }
     }
 
     override fun onBackPressed() {
