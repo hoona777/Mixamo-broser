@@ -6,7 +6,6 @@ import android.os.Bundle
 import android.view.View
 import android.webkit.*
 import android.widget.ProgressBar
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
 class MainActivity : AppCompatActivity() {
@@ -33,7 +32,6 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 progressBar.visibility = View.GONE
-                // تزریق اسکریپت لمس خودکار
                 injectTouchScript()
             }
         }
@@ -46,7 +44,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // بارگذاری مستقیم سایت میکسامو
         webView.loadUrl("https://www.mixamo.com")
     }
 
@@ -58,10 +55,14 @@ class MainActivity : AppCompatActivity() {
         settings.databaseEnabled = true
         settings.allowFileAccess = true
         
-        // شبیه‌سازی سیستم‌عامل و مرورگر دسکتاپ برای اجرای صحیح گرافیک 3D (WebGL)
+        // فعال‌سازی کوکی‌ها برای پشتیبانی کامل از لاگین Adobe/Mixamo
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.setAcceptCookie(true)
+        cookieManager.setAcceptThirdPartyCookies(webView, true)
+
+        // User Agent دسکتاپ
         settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         
-        // فعال‌سازی زوم خودکار
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
         settings.builtInZoomControls = true
@@ -75,6 +76,12 @@ class MainActivity : AppCompatActivity() {
                 window.__mixamoTouchFixLoaded = true;
 
                 let activeTarget = null;
+
+                // تشخیص دکمه‌ها، لینک‌ها و کادرهای ورود جهت عدم تداخل اسکریپت
+                function isInteractiveUI(el) {
+                    if (!el) return false;
+                    return el.closest('input, button, a, select, textarea, [role="button"], form, .spectrum-Button');
+                }
 
                 function createPointerEvent(type, touch) {
                     const el = activeTarget || document.elementFromPoint(touch.clientX, touch.clientY);
@@ -98,6 +105,14 @@ class MainActivity : AppCompatActivity() {
                 window.addEventListener('touchstart', function(e) {
                     if (e.touches.length === 1) {
                         const touch = e.touches[0];
+                        const target = document.elementFromPoint(touch.clientX, touch.clientY);
+                        
+                        // اگر کاربر روی دکمه یا فرم لاگین زده است، لمس استاندارد مرورگر اجرا شود
+                        if (isInteractiveUI(target)) {
+                            activeTarget = null;
+                            return;
+                        }
+                        
                         activeTarget = createPointerEvent('pointerdown', touch);
                     }
                 }, { passive: false });
@@ -119,9 +134,7 @@ class MainActivity : AppCompatActivity() {
             })();
         """.trimIndent()
 
-        webView.evaluateJavascript(script) {
-            // اسکریپت با موفقیت اعمال شد
-        }
+        webView.evaluateJavascript(script, null)
     }
 
     override fun onBackPressed() {
