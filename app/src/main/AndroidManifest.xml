@@ -1,26 +1,55 @@
-<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+package com.mixamo.mini.browser
 
-    <!-- دسترسی به اینترنت -->
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+import android.app.DownloadManager
+import android.net.Uri
+import android.os.Bundle
+import android.os.Environment
+import android.webkit.CookieManager
+import android.webkit.URLUtil
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
 
-    <application
-        android:allowBackup="true"
-        android:hardwareAccelerated="true"
-        android:label="Mixamo Browser"
-        android:supportsRtl="true"
-        android:theme="@style/Theme.AppCompat.NoActionBar">
+class MainActivity : AppCompatActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        val webView = findViewById<WebView>(R.id.webView)
         
-        <activity
-            android:name=".MainActivity"
-            android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-    </application>
+        // تنظیمات پایه برای اجرای بهتر وب‌سایت‌ها
+        webView.settings.javaScriptEnabled = true
+        webView.settings.domStorageEnabled = true
+        webView.webViewClient = WebViewClient()
 
-</manifest>
+        // این بخش فایل‌ها را به پوشه دانلود هدایت می‌کند
+        webView.setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
+            try {
+                val request = DownloadManager.Request(Uri.parse(url))
+                val fileName = URLUtil.guessFileName(url, contentDisposition, mimetype)
+                
+                request.setMimeType(mimetype)
+                // اضافه کردن کوکی‌ها برای سایت‌هایی که نیاز به ورود دارند (مثل میکسیمو)
+                request.addRequestHeader("cookie", CookieManager.getInstance().getCookie(url))
+                request.addRequestHeader("User-Agent", userAgent)
+                request.setDescription("در حال دانلود فایل...")
+                request.setTitle(fileName)
+                request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                
+                // مقصد: پوشه اصلی دانلودهای گوشی
+                request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+
+                val dm = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+                dm.enqueue(request)
+                
+                Toast.makeText(applicationContext, "دانلود شروع شد: $fileName", Toast.LENGTH_LONG).show()
+            } catch (e: Exception) {
+                Toast.makeText(applicationContext, "خطا در دانلود: " + e.message, Toast.LENGTH_LONG).show()
+            }
+        }
+
+        // آدرس سایت مورد نظر
+        webView.loadUrl("https://www.mixamo.com")
+    }
+}
