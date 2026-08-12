@@ -17,6 +17,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
     
+    // متغیرهای شما حفظ شد
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private val FILE_CHOOSER_REQUEST_CODE = 1001
 
@@ -30,23 +31,18 @@ class MainActivity : AppCompatActivity() {
 
         setupWebViewSettings()
         
-        // سیستم پیشرفته دانلود فایل‌ها مستقیم به پوشه Downloads
+        // سیستم پیشرفته دانلود
         webView.setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
             try {
                 val request = DownloadManager.Request(Uri.parse(url))
                 val fileName = URLUtil.guessFileName(url, contentDisposition, mimetype)
 
                 request.setMimeType(mimetype)
-                // اضافه کردن کوکی‌ها برای پشتیبانی از دانلود حساب کاربری میکسیمو
                 request.addRequestHeader("cookie", CookieManager.getInstance().getCookie(url))
                 request.addRequestHeader("User-Agent", userAgent)
                 request.setDescription("در حال دانلود فایل...")
                 request.setTitle(fileName)
-                
-                // اعلان دانلود در بالای صفحه گوشی
                 request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                
-                // ذخیره مستقیم در پوشه عمومی Downloads
                 request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
 
                 val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
@@ -82,6 +78,7 @@ class MainActivity : AppCompatActivity() {
         settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     }
 
+    // نسخه بهینه شده برای اینکه در صفحه انیمیشن مزاحم چرخش/زوم نشود
     private fun injectTouchScript() {
         val script = """
             (function() {
@@ -90,45 +87,33 @@ class MainActivity : AppCompatActivity() {
 
                 let activeTarget = null;
 
-                function findBestTarget(x, y) {
-                    const el = document.elementFromPoint(x, y);
-                    if (!el) return null;
-                    const marker = el.closest('[class*="marker"], [class*="ring"], [class*="circle"], [class*="joint"], [class*="autorig"]');
-                    return marker || el;
-                }
-
                 function fireMouseEvent(type, target, touch) {
                     const evt = new MouseEvent(type, {
-                        bubbles: true,
-                        cancelable: true,
-                        view: window,
-                        clientX: touch.clientX,
-                        clientY: touch.clientY,
-                        screenX: touch.screenX,
-                        screenY: touch.screenY,
-                        button: 0
+                        bubbles: true, cancelable: true, view: window,
+                        clientX: touch.clientX, clientY: touch.clientY, button: 0
                     });
                     target.dispatchEvent(evt);
                 }
 
                 window.addEventListener('touchstart', function(e) {
-                    if (e.touches.length !== 1) return;
-                    const touch = e.touches[0];
-                    const target = findBestTarget(touch.clientX, touch.clientY);
+                    if (e.touches.length > 1) return; // زوم دو انگشتی را آزاد بگذار
                     
-                    const isRiggingElement = target && target.matches && target.matches('[class*="marker"], [class*="ring"], [class*="circle"], [class*="joint"], [class*="autorig"]');
+                    const touch = e.touches[0];
+                    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+                    
+                    // بررسی اینکه آیا این یک مارکر ریگ‌گذاری است یا خیر
+                    const isRiggingElement = el && el.closest('[class*="marker"], [class*="ring"], [class*="circle"], [class*="joint"], [class*="autorig"]');
 
                     if (isRiggingElement) {
-                        e.preventDefault();
-                        activeTarget = target;
+                        e.preventDefault(); // فقط اگر روی مارکر بود، جلوی اسکرول را بگیر
+                        activeTarget = isRiggingElement;
                         fireMouseEvent('mousedown', activeTarget, touch);
-                    } else {
-                        activeTarget = null;
-                    }
+                    } 
+                    // اگر مارکر نباشد، اسکریپت هیچ دخالتی نمی‌کند (صفحه انیمیشن آزاد است)
                 }, { passive: false });
 
                 window.addEventListener('touchmove', function(e) {
-                    if (!activeTarget || e.touches.length !== 1) return;
+                    if (!activeTarget) return; // اگر مارکر فعال نیست، دخالت نکن
                     e.preventDefault();
                     const touch = e.touches[0];
                     fireMouseEvent('mousemove', activeTarget, touch);
