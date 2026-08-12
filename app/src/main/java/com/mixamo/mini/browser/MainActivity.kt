@@ -3,14 +3,13 @@ package com.mixamo.mini.browser
 import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.Context
-import android.content.Intent
-import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
 import android.view.View
 import android.webkit.*
 import android.widget.ProgressBar
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
 class MainActivity : AppCompatActivity() {
@@ -31,17 +30,32 @@ class MainActivity : AppCompatActivity() {
 
         setupWebViewSettings()
         
-        // قابلیت دانلود فایل‌ها
+        // سیستم پیشرفته دانلود فایل‌ها مستقیم به پوشه Downloads
         webView.setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
-            val request = DownloadManager.Request(Uri.parse(url))
-            request.allowScanningByMediaScanner()
-            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            request.setDestinationInExternalPublicDir(
-                Environment.DIRECTORY_DOWNLOADS, 
-                URLUtil.guessFileName(url, contentDisposition, mimetype)
-            )
-            val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            dm.enqueue(request)
+            try {
+                val request = DownloadManager.Request(Uri.parse(url))
+                val fileName = URLUtil.guessFileName(url, contentDisposition, mimetype)
+
+                request.setMimeType(mimetype)
+                // اضافه کردن کوکی‌ها برای پشتیبانی از دانلود حساب کاربری میکسیمو
+                request.addRequestHeader("cookie", CookieManager.getInstance().getCookie(url))
+                request.addRequestHeader("User-Agent", userAgent)
+                request.setDescription("در حال دانلود فایل...")
+                request.setTitle(fileName)
+                
+                // اعلان دانلود در بالای صفحه گوشی
+                request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                
+                // ذخیره مستقیم در پوشه عمومی Downloads
+                request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+
+                val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                dm.enqueue(request)
+
+                Toast.makeText(applicationContext, "دانلود شروع شد: $fileName", Toast.LENGTH_LONG).show()
+            } catch (e: Exception) {
+                Toast.makeText(applicationContext, "خطا در دانلود: ${e.message}", Toast.LENGTH_LONG).show()
+            }
         }
 
         webView.webViewClient = object : WebViewClient() {
@@ -60,9 +74,9 @@ class MainActivity : AppCompatActivity() {
         val settings = webView.settings
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
-        settings.setSupportZoom(true) // فعال‌سازی زوم
-        settings.builtInZoomControls = true // نمایش دکمه‌های زوم
-        settings.displayZoomControls = false // مخفی کردن کنترل‌های روی صفحه
+        settings.setSupportZoom(true)
+        settings.builtInZoomControls = true
+        settings.displayZoomControls = false
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
         settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
@@ -83,28 +97,52 @@ class MainActivity : AppCompatActivity() {
                     return marker || el;
                 }
 
+                function fireMouseEvent(type, target, touch) {
+                    const evt = new MouseEvent(type, {
+                        bubbles: true,
+                        cancelable: true,
+                        view: window,
+                        clientX: touch.clientX,
+                        clientY: touch.clientY,
+                        screenX: touch.screenX,
+                        screenY: touch.screenY,
+                        button: 0
+                    });
+                    target.dispatchEvent(evt);
+                }
+
                 window.addEventListener('touchstart', function(e) {
-                    if (e.touches.length !== 1) return; // اگر ۲ انگشتی (زوم) بود، دخالت نکن
+                    if (e.touches.length !== 1) return;
                     const touch = e.touches[0];
                     const target = findBestTarget(touch.clientX, touch.clientY);
                     
-                    // بررسی اینکه آیا این یک مفصل است یا نه
-                    const isRiggingElement = target.matches('[class*="marker"], [class*="ring"], [class*="circle"], [class*="joint"], [class*="autorig"]');
+                    const isRiggingElement = target && target.matches && target.matches('[class*="marker"], [class*="ring"], [class*="circle"], [class*="joint"], [class*="autorig"]');
 
                     if (isRiggingElement) {
-                        e.preventDefault(); // فقط اگر مفصل بود، اسکرول صفحه را متوقف کن
+                        e.preventDefault();
                         activeTarget = target;
-                        // کد ارسال ایونت موس... (همان قبلی)
                         fireMouseEvent('mousedown', activeTarget, touch);
                     } else {
-                        activeTarget = null; // اگر نبود، بگذار مرورگر عادی کار کند
+                        activeTarget = null;
                     }
                 }, { passive: false });
 
-                // (بقیه توابع fireMouseEvent و touchmove/touchend دقیقاً مشابه نسخه قبلی)
-                // ...
+                window.addEventListener('touchmove', function(e) {
+                    if (!activeTarget || e.touches.length !== 1) return;
+                    e.preventDefault();
+                    const touch = e.touches[0];
+                    fireMouseEvent('mousemove', activeTarget, touch);
+                }, { passive: false });
+
+                window.addEventListener('touchend', function(e) {
+                    if (!activeTarget) return;
+                    const touch = e.changedTouches[0];
+                    fireMouseEvent('mouseup', activeTarget, touch);
+                    activeTarget = null;
+                }, { passive: false });
             })();
         """.trimIndent()
-        // ... (بقیه کدهای تزریق)
+
+        webView.evaluateJavascript(script, null)
     }
 }
