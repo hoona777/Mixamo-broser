@@ -3,6 +3,7 @@ package com.mixamo.mini.browser
 import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
@@ -16,8 +17,8 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
-    
-    // متغیرهای شما حفظ شد
+
+    // متغیرهای مدیریت انتخاب فایل برای آپلود
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private val FILE_CHOOSER_REQUEST_CODE = 1001
 
@@ -30,8 +31,8 @@ class MainActivity : AppCompatActivity() {
         progressBar = findViewById(R.id.progressBar)
 
         setupWebViewSettings()
-        
-        // سیستم پیشرفته دانلود
+
+        // ۱. سیستم پیشرفته دانلود فایل‌ها مستقیم به پوشه Downloads
         webView.setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
             try {
                 val request = DownloadManager.Request(Uri.parse(url))
@@ -61,8 +62,41 @@ class MainActivity : AppCompatActivity() {
                 injectTouchScript()
             }
         }
-        
+
+        // ۲. فعال‌سازی پنجره انتخاب فایل برای دکمه Upload Character (حیاتی برای آپلود)
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onShowFileChooser(
+                webView: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: FileChooserParams?
+            ): Boolean {
+                this@MainActivity.filePathCallback?.onReceiveValue(null)
+                this@MainActivity.filePathCallback = filePathCallback
+
+                val intent = fileChooserParams?.createIntent()
+                try {
+                    startActivityForResult(intent!!, FILE_CHOOSER_REQUEST_CODE)
+                } catch (e: Exception) {
+                    this@MainActivity.filePathCallback = null
+                    Toast.makeText(applicationContext, "امکان باز کردن فایل‌مانجر وجود ندارد", Toast.SHORT).show()
+                    return false
+                }
+                return true
+            }
+        }
+
         webView.loadUrl("https://www.mixamo.com")
+    }
+
+    // دریافت نتیجه فایل انتخاب شده از حافظه گوشی و فرستادن آن به میکسیمو
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == FILE_CHOOSER_REQUEST_CODE) {
+            if (filePathCallback == null) return
+            val results = WebChromeClient.FileChooserParams.parseResult(resultCode, data)
+            filePathCallback?.onReceiveValue(results)
+            filePathCallback = null
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -70,6 +104,11 @@ class MainActivity : AppCompatActivity() {
         val settings = webView.settings
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
+        
+        // مجوزهای دسترسی فایل برای مرورگر
+        settings.allowFileAccess = true
+        settings.allowContentAccess = true
+
         settings.setSupportZoom(true)
         settings.builtInZoomControls = true
         settings.displayZoomControls = false
@@ -78,7 +117,6 @@ class MainActivity : AppCompatActivity() {
         settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     }
 
-    // نسخه بهینه شده برای اینکه در صفحه انیمیشن مزاحم چرخش/زوم نشود
     private fun injectTouchScript() {
         val script = """
             (function() {
@@ -96,24 +134,22 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 window.addEventListener('touchstart', function(e) {
-                    if (e.touches.length > 1) return; // زوم دو انگشتی را آزاد بگذار
+                    if (e.touches.length > 1) return; 
                     
                     const touch = e.touches[0];
                     const el = document.elementFromPoint(touch.clientX, touch.clientY);
                     
-                    // بررسی اینکه آیا این یک مارکر ریگ‌گذاری است یا خیر
                     const isRiggingElement = el && el.closest('[class*="marker"], [class*="ring"], [class*="circle"], [class*="joint"], [class*="autorig"]');
 
                     if (isRiggingElement) {
-                        e.preventDefault(); // فقط اگر روی مارکر بود، جلوی اسکرول را بگیر
+                        e.preventDefault(); 
                         activeTarget = isRiggingElement;
                         fireMouseEvent('mousedown', activeTarget, touch);
                     } 
-                    // اگر مارکر نباشد، اسکریپت هیچ دخالتی نمی‌کند (صفحه انیمیشن آزاد است)
                 }, { passive: false });
 
                 window.addEventListener('touchmove', function(e) {
-                    if (!activeTarget) return; // اگر مارکر فعال نیست، دخالت نکن
+                    if (!activeTarget) return;
                     e.preventDefault();
                     const touch = e.touches[0];
                     fireMouseEvent('mousemove', activeTarget, touch);
