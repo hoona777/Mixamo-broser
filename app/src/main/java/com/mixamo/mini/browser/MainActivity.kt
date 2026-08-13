@@ -32,7 +32,7 @@ class MainActivity : AppCompatActivity() {
 
         setupWebViewSettings()
 
-        // ۱. سیستم پیشرفته دانلود فایل‌ها مستقیم به پوشه Downloads
+        // سیستم دانلود فایل‌ها مستقیم به پوشه Downloads
         webView.setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
             try {
                 val request = DownloadManager.Request(Uri.parse(url))
@@ -63,7 +63,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // ۲. فعال‌سازی پنجره انتخاب فایل برای دکمه Upload Character (حیاتی برای آپلود)
+        // فعال‌سازی پنجره انتخاب فایل برای دکمه Upload Character
         webView.webChromeClient = object : WebChromeClient() {
             override fun onShowFileChooser(
                 webView: WebView?,
@@ -78,7 +78,8 @@ class MainActivity : AppCompatActivity() {
                     startActivityForResult(intent!!, FILE_CHOOSER_REQUEST_CODE)
                 } catch (e: Exception) {
                     this@MainActivity.filePathCallback = null
-                    Toast.makeText(applicationContext, "امکان باز کردن فایل‌مانجر وجود ندارد", Toast.SHORT).show()
+                    // اصلاح کلمه LENGTH_SHORT در این خط
+                    Toast.makeText(applicationContext, "امکان باز کردن فایل‌مانجر وجود ندارد", Toast.LENGTH_SHORT).show()
                     return false
                 }
                 return true
@@ -88,7 +89,7 @@ class MainActivity : AppCompatActivity() {
         webView.loadUrl("https://www.mixamo.com")
     }
 
-    // دریافت نتیجه فایل انتخاب شده از حافظه گوشی و فرستادن آن به میکسیمو
+    // دریافت نتیجه فایل انتخاب شده از حافظه گوشی برای آپلود در میکسیمو
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == FILE_CHOOSER_REQUEST_CODE) {
