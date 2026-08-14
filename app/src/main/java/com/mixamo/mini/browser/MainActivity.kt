@@ -63,7 +63,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // فعال‌سازی پنجره انتخاب فایل (File Picker) برای آپلود مدل
+        // فعال‌سازی قطعی فایل‌مانجر اندروید هنگام درخواست سایت
         webView.webChromeClient = object : WebChromeClient() {
             override fun onShowFileChooser(
                 webView: WebView?,
@@ -73,22 +73,27 @@ class MainActivity : AppCompatActivity() {
                 this@MainActivity.filePathCallback?.onReceiveValue(null)
                 this@MainActivity.filePathCallback = filePathCallback
 
-                val intent = fileChooserParams?.createIntent()
-                try {
-                    startActivityForResult(intent!!, FILE_CHOOSER_REQUEST_CODE)
+                // تلاش برای استفاده از Intent خود مرورگر و در غیر این صورت باز کردن کلی فایل‌ها
+                val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                }
+
+                return try {
+                    startActivityForResult(Intent.createChooser(intent, "انتخاب مدل ۳بعدی"), FILE_CHOOSER_REQUEST_CODE)
+                    true
                 } catch (e: Exception) {
                     this@MainActivity.filePathCallback = null
-                    Toast.makeText(applicationContext, "امکان باز کردن فایل‌مانجر وجود ندارد", Toast.LENGTH_SHORT).show()
-                    return false
+                    Toast.makeText(applicationContext, "امکان باز کردن مدیریت فایل وجود ندارد", Toast.LENGTH_SHORT).show()
+                    false
                 }
-                return true
             }
         }
 
         webView.loadUrl("https://www.mixamo.com")
     }
 
-    // دریافت فایل انتخاب‌شده از حافظه گوشی
+    // ارسال فایل انتخاب‌شده از حافظه گوشی به مرورگر
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == FILE_CHOOSER_REQUEST_CODE) {
@@ -105,9 +110,13 @@ class MainActivity : AppCompatActivity() {
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         
-        // مجوزهای دسترسی فایل
+        // مجوزهای دسترسی کامل به فایل
         settings.allowFileAccess = true
         settings.allowContentAccess = true
+
+        // اجازه باز کردن پنجره‌ها و دیالوگ‌های فایل
+        settings.javaScriptCanOpenWindowsAutomatically = true
+        settings.setSupportMultipleWindows(false)
 
         settings.setSupportZoom(true)
         settings.builtInZoomControls = true
@@ -117,7 +126,6 @@ class MainActivity : AppCompatActivity() {
         settings.userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     }
 
-    // اسکریپت هوشمند تبدیل لمس تاچ به کلیک واقعی موس برای تمام دکمه‌ها و نوشته‌ها
     private fun injectTouchScript() {
         val script = """
             (function() {
@@ -125,9 +133,6 @@ class MainActivity : AppCompatActivity() {
                 window.__mixamoTouchFixInjected = true;
 
                 let activeTarget = null;
-                let startX = 0;
-                let startY = 0;
-                let isTap = false;
 
                 function fireMouseEvent(type, target, touch) {
                     const evt = new MouseEvent(type, {
@@ -137,38 +142,27 @@ class MainActivity : AppCompatActivity() {
                     target.dispatchEvent(evt);
                 }
 
+                // ۱. مدیریت اختصاصی لمس دایره‌های نشانه‌گذاری (Markers)
                 window.addEventListener('touchstart', function(e) {
                     if (e.touches.length > 1) return; 
                     
                     const touch = e.touches[0];
-                    startX = touch.clientX;
-                    startY = touch.clientY;
-                    isTap = true;
-
                     const el = document.elementFromPoint(touch.clientX, touch.clientY);
+                    
                     const isRiggingElement = el && el.closest('[class*="marker"], [class*="ring"], [class*="circle"], [class*="joint"], [class*="autorig"]');
 
                     if (isRiggingElement) {
                         e.preventDefault(); 
                         activeTarget = isRiggingElement;
                         fireMouseEvent('mousedown', activeTarget, touch);
-                        isTap = false;
-                    } 
+                    }
                 }, { passive: false });
 
                 window.addEventListener('touchmove', function(e) {
-                    if (activeTarget) {
-                        e.preventDefault();
-                        const touch = e.touches[0];
-                        fireMouseEvent('mousemove', activeTarget, touch);
-                        return;
-                    }
-                    if (e.touches.length === 1) {
-                        const touch = e.touches[0];
-                        if (Math.abs(touch.clientX - startX) > 10 || Math.abs(touch.clientY - startY) > 10) {
-                            isTap = false; // اگر انگشت کشیده شد، دیگر تاچ ساده (Tap) نیست
-                        }
-                    }
+                    if (!activeTarget) return;
+                    e.preventDefault();
+                    const touch = e.touches[0];
+                    fireMouseEvent('mousemove', activeTarget, touch);
                 }, { passive: false });
 
                 window.addEventListener('touchend', function(e) {
@@ -179,14 +173,18 @@ class MainActivity : AppCompatActivity() {
                         return;
                     }
 
-                    // اگر یک تاچ ساده روی دکمه/نوشته آپلود بود، کلیک موس ارسال کن
-                    if (isTap) {
-                        const touch = e.changedTouches[0];
-                        const el = document.elementFromPoint(touch.clientX, touch.clientY);
-                        if (el) {
-                            fireMouseEvent('mousedown', el, touch);
-                            fireMouseEvent('mouseup', el, touch);
-                            fireMouseEvent('click', el, touch);
+                    // ۲. حل مشکل دکمه Select Character File در پنجره آپلود
+                    const touch = e.changedTouches[0];
+                    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+                    if (el) {
+                        // اگر روی کادر آپلود یا متن Select Character File تاچ شد
+                        const isSelectFile = el.innerText && el.innerText.includes('Select Character File');
+                        const fileInput = document.querySelector('input[type="file"]');
+
+                        if (isSelectFile || el.closest('[class*="upload"], [class*="drop"]')) {
+                            if (fileInput) {
+                                fileInput.click(); // تحریک مستقیم فایل‌اینپوت مخفی میکسیمو
+                            }
                         }
                     }
                 }, { passive: false });
