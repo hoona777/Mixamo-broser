@@ -17,8 +17,6 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
-
-    // متغیرهای مدیریت انتخاب فایل برای آپلود
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private val FILE_CHOOSER_REQUEST_CODE = 1001
 
@@ -32,27 +30,21 @@ class MainActivity : AppCompatActivity() {
 
         setupWebViewSettings()
 
-        // سیستم دانلود مستقیم فایل‌ها به پوشه Downloads
         webView.setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
             try {
                 val request = DownloadManager.Request(Uri.parse(url))
                 val fileName = URLUtil.guessFileName(url, contentDisposition, mimetype)
-
                 request.setMimeType(mimetype)
                 request.addRequestHeader("cookie", CookieManager.getInstance().getCookie(url))
                 request.addRequestHeader("User-Agent", userAgent)
-                request.setDescription("در حال دانلود فایل...")
+                request.setDescription("در حال دانلود...")
                 request.setTitle(fileName)
                 request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-
                 val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
                 dm.enqueue(request)
-
-                Toast.makeText(applicationContext, "دانلود شروع شد: $fileName", Toast.LENGTH_LONG).show()
-            } catch (e: Exception) {
-                Toast.makeText(applicationContext, "خطا در دانلود: ${e.message}", Toast.LENGTH_LONG).show()
-            }
+                Toast.makeText(applicationContext, "دانلود: $fileName", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) { Toast.makeText(applicationContext, "خطا در دانلود", Toast.LENGTH_SHORT).show() }
         }
 
         webView.webViewClient = object : WebViewClient() {
@@ -63,41 +55,27 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // فعال‌سازی قطعی فایل‌مانجر اندروید هنگام درخواست سایت
         webView.webChromeClient = object : WebChromeClient() {
-            override fun onShowFileChooser(
-                webView: WebView?,
-                filePathCallback: ValueCallback<Array<Uri>>?,
-                fileChooserParams: FileChooserParams?
-            ): Boolean {
+            override fun onShowFileChooser(webView: WebView?, filePathCallback: ValueCallback<Array<Uri>>?, fileChooserParams: FileChooserParams?): Boolean {
                 this@MainActivity.filePathCallback?.onReceiveValue(null)
                 this@MainActivity.filePathCallback = filePathCallback
-
-                // تلاش برای استفاده از Intent خود مرورگر و در غیر این صورت باز کردن کلی فایل‌ها
                 val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
                     type = "*/*"
                 }
-
                 return try {
-                    startActivityForResult(Intent.createChooser(intent, "انتخاب مدل ۳بعدی"), FILE_CHOOSER_REQUEST_CODE)
+                    startActivityForResult(Intent.createChooser(intent, "انتخاب فایل"), FILE_CHOOSER_REQUEST_CODE)
                     true
-                } catch (e: Exception) {
-                    this@MainActivity.filePathCallback = null
-                    Toast.makeText(applicationContext, "امکان باز کردن مدیریت فایل وجود ندارد", Toast.LENGTH_SHORT).show()
-                    false
-                }
+                } catch (e: Exception) { false }
             }
         }
 
         webView.loadUrl("https://www.mixamo.com")
     }
 
-    // ارسال فایل انتخاب‌شده از حافظه گوشی به مرورگر
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == FILE_CHOOSER_REQUEST_CODE) {
-            if (filePathCallback == null) return
             val results = WebChromeClient.FileChooserParams.parseResult(resultCode, data)
             filePathCallback?.onReceiveValue(results)
             filePathCallback = null
@@ -109,15 +87,8 @@ class MainActivity : AppCompatActivity() {
         val settings = webView.settings
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
-        
-        // مجوزهای دسترسی کامل به فایل
         settings.allowFileAccess = true
         settings.allowContentAccess = true
-
-        // اجازه باز کردن پنجره‌ها و دیالوگ‌های فایل
-        settings.javaScriptCanOpenWindowsAutomatically = true
-        settings.setSupportMultipleWindows(false)
-
         settings.setSupportZoom(true)
         settings.builtInZoomControls = true
         settings.displayZoomControls = false
@@ -127,6 +98,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun injectTouchScript() {
+        // اسکریپت جدید: فقط دایره‌های ریگ‌گذاری را مدیریت کن، بقیه موارد را به حال خود بگذار!
         val script = """
             (function() {
                 if (window.__mixamoTouchFixInjected) return;
@@ -142,27 +114,18 @@ class MainActivity : AppCompatActivity() {
                     target.dispatchEvent(evt);
                 }
 
-                // ۱. مدیریت اختصاصی لمس دایره‌های نشانه‌گذاری (Markers)
                 window.addEventListener('touchstart', function(e) {
-                    if (e.touches.length > 1) return; 
-                    
+                    if (e.touches.length > 1) return;
                     const touch = e.touches[0];
                     const el = document.elementFromPoint(touch.clientX, touch.clientY);
-                    
                     const isRiggingElement = el && el.closest('[class*="marker"], [class*="ring"], [class*="circle"], [class*="joint"], [class*="autorig"]');
 
                     if (isRiggingElement) {
-                        e.preventDefault(); 
+                        e.preventDefault(); // فقط روی دایره‌ها مانع اسکرول شو
                         activeTarget = isRiggingElement;
                         fireMouseEvent('mousedown', activeTarget, touch);
                     }
-                }, { passive: false });
-
-                window.addEventListener('touchmove', function(e) {
-                    if (!activeTarget) return;
-                    e.preventDefault();
-                    const touch = e.touches[0];
-                    fireMouseEvent('mousemove', activeTarget, touch);
+                    // برای همه چیزهای دیگر، ما هیچ کدی اجرا نمی‌کنیم! مرورگر خودش دکمه Next را کلیک می‌کند.
                 }, { passive: false });
 
                 window.addEventListener('touchend', function(e) {
@@ -170,27 +133,10 @@ class MainActivity : AppCompatActivity() {
                         const touch = e.changedTouches[0];
                         fireMouseEvent('mouseup', activeTarget, touch);
                         activeTarget = null;
-                        return;
-                    }
-
-                    // ۲. حل مشکل دکمه Select Character File در پنجره آپلود
-                    const touch = e.changedTouches[0];
-                    const el = document.elementFromPoint(touch.clientX, touch.clientY);
-                    if (el) {
-                        // اگر روی کادر آپلود یا متن Select Character File تاچ شد
-                        const isSelectFile = el.innerText && el.innerText.includes('Select Character File');
-                        const fileInput = document.querySelector('input[type="file"]');
-
-                        if (isSelectFile || el.closest('[class*="upload"], [class*="drop"]')) {
-                            if (fileInput) {
-                                fileInput.click(); // تحریک مستقیم فایل‌اینپوت مخفی میکسیمو
-                            }
-                        }
                     }
                 }, { passive: false });
             })();
         """.trimIndent()
-
         webView.evaluateJavascript(script, null)
     }
 }
